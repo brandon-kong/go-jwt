@@ -17,6 +17,9 @@ type Config struct {
 	JwtExpiresIn time.Duration `mapstructure:"JWT_EXPIRED_IN"`
 	JwtMaxAge    int           `mapstructure:"JWT_MAXAGE"`
 
+	RefreshExpiresIn time.Duration `mapstructure:"REFRESH_EXPIRED_IN"`
+	REFRESH_MAXAGE   int           `mapstructure:"REFRESH_MAXAGE"`
+
 	ClientOrigin string `mapstructure:"CLIENT_ORIGIN"`
 }
 

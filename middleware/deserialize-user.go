@@ -43,6 +43,11 @@ func DeserializeUser(c *fiber.Ctx) error {
 
 	}
 
+	token_type := claims["token_type"].(string)
+	if token_type != "access" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"status": "fail", "message": "invalid token type"})
+	}
+
 	var user models.User
 	initializers.DB.First(&user, "id = ?", fmt.Sprint(claims["sub"]))
 

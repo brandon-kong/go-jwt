@@ -15,6 +15,7 @@ import (
 func SignUpUser(c *fiber.Ctx) error {
 	var payload *models.SignUpInput
 
+	print("hello")
 	if err := c.BodyParser(&payload); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"status": "fail", "message": err.Error()})
 	}
@@ -51,7 +52,63 @@ func SignUpUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"status": "error", "message": "Something bad happened"})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"status": "success", "data": fiber.Map{"user": models.FilterUserRecord(&newUser)}})
+	// Generate JWT Tokens
+	config, _ := initializers.LoadConfig(".")
+	tokenByte := jwt.New(jwt.SigningMethodHS256)
+	refreshTokenByte := jwt.New(jwt.SigningMethodHS256)
+
+	now := time.Now().UTC()
+	claims := tokenByte.Claims.(jwt.MapClaims)
+
+	claims["sub"] = newUser.ID
+	claims["exp"] = now.Add(config.JwtExpiresIn).Unix()
+	claims["iat"] = now.Unix()
+	claims["nbf"] = now.Unix()
+	claims["token_type"] = "access"
+
+	refreshClaims := refreshTokenByte.Claims.(jwt.MapClaims)
+	refreshClaims["sub"] = newUser.ID
+	refreshClaims["exp"] = now.Add(config.RefreshExpiresIn).Unix()
+	refreshClaims["iat"] = now.Unix()
+	refreshClaims["nbf"] = now.Unix()
+	refreshClaims["token_type"] = "refresh"
+
+	refreshTokenString, re_err := refreshTokenByte.SignedString([]byte(config.JwtSecret))
+	tokenString, err := tokenByte.SignedString([]byte(config.JwtSecret))
+
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"status": "fail", "message": fmt.Sprintf("generating JWT Token failed: %v", err)})
+	}
+
+	if re_err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"status": "fail", "message": fmt.Sprintf("generating Refresh Token failed: %v", re_err)})
+	}
+
+	/*c.Cookie(&fiber.Cookie{
+		Name:     "token",
+		Value:    tokenString,
+		Path:     "/",
+		MaxAge:   config.JwtMaxAge * 60,
+		Secure:   false,
+		HTTPOnly: true,
+		Domain:   "localhost",
+	})
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshTokenString,
+		Path:     "/",
+		MaxAge:   config.REFRESH_MAXAGE * 60,
+		Secure:   false,
+		HTTPOnly: true,
+		Domain:   "localhost",
+	})
+	*/
+
+
+		
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"status": "success","access": tokenString, "refresh": refreshTokenString})
 }
 
 func SignInUser(c *fiber.Ctx) error {
@@ -80,6 +137,7 @@ func SignInUser(c *fiber.Ctx) error {
 
 	config, _ := initializers.LoadConfig(".")
 
+	refreshTokenByte := jwt.New(jwt.SigningMethodHS256)
 	tokenByte := jwt.New(jwt.SigningMethodHS256)
 
 	now := time.Now().UTC()
@@ -89,11 +147,24 @@ func SignInUser(c *fiber.Ctx) error {
 	claims["exp"] = now.Add(config.JwtExpiresIn).Unix()
 	claims["iat"] = now.Unix()
 	claims["nbf"] = now.Unix()
+	claims["token_type"] = "access"
 
+	refreshClaims := refreshTokenByte.Claims.(jwt.MapClaims)
+	refreshClaims["sub"] = user.ID
+	refreshClaims["exp"] = now.Add(config.RefreshExpiresIn).Unix()
+	refreshClaims["iat"] = now.Unix()
+	refreshClaims["nbf"] = now.Unix()
+	refreshClaims["token_type"] = "refresh"
+
+	refreshTokenString, re_err := refreshTokenByte.SignedString([]byte(config.JwtSecret))
 	tokenString, err := tokenByte.SignedString([]byte(config.JwtSecret))
 
 	if err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"status": "fail", "message": fmt.Sprintf("generating JWT Token failed: %v", err)})
+	}
+
+	if re_err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"status": "fail", "message": fmt.Sprintf("generating Refresh Token failed: %v", re_err)})
 	}
 
 	c.Cookie(&fiber.Cookie{
@@ -106,7 +177,18 @@ func SignInUser(c *fiber.Ctx) error {
 		Domain:   "localhost",
 	})
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "success", "token": tokenString})
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshTokenString,
+		Path:     "/",
+		MaxAge:   config.REFRESH_MAXAGE * 60,
+		Secure:   false,
+		HTTPOnly: true,
+		Domain:   "localhost",
+	})
+
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "success", "access": tokenString, "refresh": refreshTokenString})
 }
 
 func LogoutUser(c *fiber.Ctx) error {
@@ -116,5 +198,12 @@ func LogoutUser(c *fiber.Ctx) error {
 		Value:   "",
 		Expires: expired,
 	})
+
+	c.Cookie(&fiber.Cookie{
+		Name:    "refresh_token",
+		Value:   "",
+		Expires: expired,
+	})
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "success"})
 }
